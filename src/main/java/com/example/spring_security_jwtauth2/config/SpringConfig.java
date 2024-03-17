@@ -7,18 +7,21 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
-import jakarta.servlet.FilterChain;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.web.OAuth2ResourceServerDsl;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.annotation.web.configurers.oauth2.server.resource.OAuth2ResourceServerConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -31,36 +34,48 @@ import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
+@EnableMethodSecurity
 public class SpringConfig {
 
     private final RsaKeysConfig rsaKeysConfig;
+    private final PasswordEncoder passwordEncoder;
+
 
 
     @Bean
-    public InMemoryUserDetailsManager inMemoryUserDetailsManager()
-    {
+    public AuthenticationManager authenticationManager( UserDetailsService userDetailsService){
+        var authProvider = new DaoAuthenticationProvider();
+        authProvider.setPasswordEncoder(passwordEncoder);
+        authProvider.setUserDetailsService(userDetailsService);
+        return new ProviderManager(authProvider);
+    }
 
+
+    @Bean
+    public UserDetailsService inMemoryUserDetailsManager(){
         return new InMemoryUserDetailsManager(
-                User.withUsername("user1").password("{noop}123").authorities("USER").build(),
-                User.withUsername("user2").password("{noop}123").authorities("USER").build(),
-                User.withUsername("admin").password("{noop}123").authorities("ADMIN","USER").build()
+                User.withUsername("user1").password(passwordEncoder.encode("1234")).authorities("USER").build(),
+                User.withUsername("user2").password(passwordEncoder.encode("1234")).authorities("USER").build(),
+                User.withUsername("admin").password(passwordEncoder.encode("1234")).authorities("USER","ADMIN").build()
         );
     }
+
+
 
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
      return     httpSecurity
                 .csrf(AbstractHttpConfigurer::disable)
+               .authorizeHttpRequests(auth->auth.requestMatchers("/token/**").permitAll())
+
                 .authorizeHttpRequests(auth-> auth.anyRequest().authenticated())
                 .sessionManagement(sess->sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(withDefaults()))
-                 .httpBasic(Customizer.withDefaults())
-                 //.formLogin(Customizer.withDefaults())
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(withDefaults()))
+                 .httpBasic(withDefaults())
                 .build();
-
-
     }
+
 
     @Bean
     JwtDecoder jwtDecoder(){
@@ -72,4 +87,14 @@ public class SpringConfig {
         JWKSource<SecurityContext> jwkSource= new ImmutableJWKSet<>(new JWKSet(jwk));
         return new NimbusJwtEncoder(jwkSource);
     }
+
+
+
+
+
+
+
+
+
+
 }

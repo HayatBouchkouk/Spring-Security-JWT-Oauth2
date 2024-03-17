@@ -2,8 +2,15 @@ package com.example.spring_security_jwtauth2.web;
 
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
@@ -19,39 +26,92 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
 
     private final JwtEncoder jwtEncoder;
 
+    private final AuthenticationManager authenticationManager;
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthController.class);
 
 
     //this post will generate the token of authenticated user!
+
     @PostMapping("/token")
-    public Map<String,String> jwtToken(Authentication authentication)
-    {
+    public Map<String, String> jwtToken
+            (String grantType,
+             String username,
+             String password,
+             boolean withRefreshToken,
+             String refreshToken) {
 
-        Instant instant=Instant.now();
 
-        String scope=authentication.getAuthorities()
-                .stream().map(auth->authentication.getName()).collect(Collectors.joining(" "));
+        Authentication authentication=null;
 
-        JwtClaimsSet jwtClaimsSet=JwtClaimsSet.builder()
-                .subject(authentication.getName())
-                .issuedAt(instant)
-                .expiresAt(instant.plus(5, ChronoUnit.MINUTES))
-                .issuer("security-service")
-                .claim("scope",scope)
-                .build();
+        if (grantType.equals("password")) {
 
-        String jwtAccessToken=jwtEncoder.encode(JwtEncoderParameters.from(jwtClaimsSet)).getTokenValue();
+            try {
+                authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(username, password)
+                );
 
-        Map<String,String> IdToken=new HashMap<>();
+            } catch (AuthenticationException e) {
+                // Authentication failed
+                // You can log authentication failure here or handle the exception as needed
+                LOGGER.error("Authentication failed for user '{}': {}", username, e.getMessage());
+                throw e; // Rethrow the exception or handle it based on your requirements
+            }
 
-        IdToken.put("accessToken",jwtAccessToken);
+        }
 
-        return IdToken;
+        else if (grantType.equals("refreshToken"))
+        {
+
+        }
+
+
+
+
+            // User successfully authenticated
+            // You can log authentication success here if needed
+            LOGGER.info("User '{}' successfully authenticated", username);
+
+            // Generate JWT token
+            Instant instant = Instant.now();
+            String scope = authentication.getAuthorities()
+                    .stream().map(GrantedAuthority::getAuthority).collect(Collectors.joining(" "));
+
+            JwtClaimsSet jwtClaimsSet = JwtClaimsSet.builder()
+                    .subject(authentication.getName())
+                    .issuedAt(instant)
+                    .expiresAt(instant.plus(withRefreshToken ? 5 : 30, ChronoUnit.MINUTES))
+                    .issuer("security-service")
+                    .claim("scope", scope)
+                    .build();
+
+            String jwtAccessToken = jwtEncoder.encode(JwtEncoderParameters.from(jwtClaimsSet)).getTokenValue();
+
+            Map<String, String> idToken = new HashMap<>();
+            idToken.put("accessToken", jwtAccessToken);
+
+            if (withRefreshToken)
+            {
+
+                // Generate Refresh Token token
+                JwtClaimsSet jwtClaimsSetRefresh = JwtClaimsSet.builder()
+                        .subject(authentication.getName())
+                        .issuedAt(instant)
+                        .expiresAt(instant.plus(30, ChronoUnit.MINUTES))
+                        .issuer("security-service")
+                        .build();
+
+                String jwtRefreshToken = jwtEncoder.encode(JwtEncoderParameters.from(jwtClaimsSetRefresh)).getTokenValue();
+                idToken.put("RefreshToken",jwtRefreshToken);
+            }
+
+            return idToken;
+
     }
 
 }
